@@ -14,6 +14,7 @@ on:
 
 jobs:
   build-deb:
+    # Use ubuntu-latest for DEB builds to target current Debian/Ubuntu versions
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,7 +25,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
@@ -165,6 +166,8 @@ jobs:
           if-no-files-found: error
 
   build-appimage:
+    # Use ubuntu-20.04 for AppImage builds to ensure compatibility with older systems
+    # AppImage should work on systems with glibc >= 2.31 (Ubuntu 20.04 and newer)
     runs-on: ubuntu-20.04
     permissions:
       contents: read
@@ -175,7 +178,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'
 
       - name: Get version
         id: get_version
@@ -196,6 +199,7 @@ jobs:
             libfuse2 \
             desktop-file-utils \
             zsync
+          # Note: Ubuntu 20.04 uses libgirepository1.0-dev, while newer versions use 2.0
 
       - name: Install Python dependencies
         run: |
