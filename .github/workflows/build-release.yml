@@ -116,7 +116,7 @@ jobs:
            some of the modifiable features of devices.
           EOF
           
-          # Create debian/rules
+          # Create debian/rules (don't copy udev rules manually here)
           cat > debian/rules << 'EOF'
           #!/usr/bin/make -f
           
@@ -129,12 +129,14 @@ jobs:
 
           override_dh_auto_install:
           	dh_auto_install
-          	# Install udev rules
-          	install -D -m 644 rules.d/42-logitech-unify-permissions.rules \
-          		debian/solaar/lib/udev/rules.d/42-logitech-unify-permissions.rules
           EOF
           chmod +x debian/rules
-          
+
+          # Use dh_install via a .install file to put the udev rule into lib/udev
+          cat > debian/solaar.install << 'EOF'
+          rules.d/42-logitech-unify-permissions.rules lib/udev/rules.d
+          EOF
+
           # Create debian/changelog
           VERSION="${{ steps.get_version.outputs.VERSION }}"
           DATE_STR=$(date -R)
