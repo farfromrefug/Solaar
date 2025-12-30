@@ -15,6 +15,8 @@ on:
 jobs:
   build-deb:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,7 +56,7 @@ jobs:
           Source: solaar
           Section: utils
           Priority: optional
-          Maintainer: Solaar Developers <solaar@example.com>
+          Maintainer: pwr-Solaar <pfpschneider@gmail.com>
           Build-Depends: debhelper (>= 12),
                          dh-python,
                          python3-all,
@@ -106,7 +108,7 @@ jobs:
           
             * Release version ${{ steps.get_version.outputs.VERSION }}
           
-           -- Solaar Developers <solaar@example.com>  $(date -R)
+           -- pwr-Solaar <pfpschneider@gmail.com>  $(date -R)
           EOF
           
           # Create debian/compat
@@ -164,6 +166,8 @@ jobs:
 
   build-appimage:
     runs-on: ubuntu-20.04
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
