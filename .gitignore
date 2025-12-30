@@ -12,6 +12,12 @@ __pycache__/
 /dist/
 /deb_dist/
 /MANIFEST
+/debian/
+*.deb
+*.buildinfo
+*.changes
+AppDir/
+*.AppImage
 
 .coverage
 /htmlcov/

@@ -1,0 +1,360 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+rc[0-9]+'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release'
+        required: false
+        default: 'false'
+
+jobs:
+  build-deb:
+    # Use ubuntu-latest for DEB builds to target current Debian/Ubuntu versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debhelper \
+            dh-python \
+            python3-all \
+            python3-setuptools \
+            libdbus-1-dev \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libgirepository-2.0-dev \
+            gobject-introspection
+
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION=$(cat lib/solaar/version)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Create debian directory structure
+        run: |
+          mkdir -p debian/source
+          
+          # Create debian/control
+          cat > debian/control << 'EOF'
+          Source: solaar
+          Section: utils
+          Priority: optional
+          Maintainer: pwr-Solaar <pfpschneider@gmail.com>
+          Build-Depends: debhelper (>= 12),
+                         dh-python,
+                         python3-all,
+                         python3-setuptools,
+                         libdbus-1-dev,
+                         libglib2.0-dev,
+                         libgirepository-2.0-dev
+          Standards-Version: 4.5.1
+          Homepage: https://pwr-solaar.github.io/Solaar/
+          
+          Package: solaar
+          Architecture: all
+          Depends: ${python3:Depends},
+                   ${misc:Depends},
+                   python3-evdev (>= 1.1.2),
+                   python3-pyudev (>= 0.13),
+                   python3-yaml (>= 3.12),
+                   python3-xlib (>= 0.27),
+                   python3-psutil (>= 5.4.3),
+                   python3-dbus,
+                   python3-gi,
+                   gir1.2-gtk-3.0,
+                   gir1.2-ayatanaappindicator3-0.1 | gir1.2-appindicator3-0.1
+          Description: Linux device manager for Logitech receivers and devices
+           Solaar is a Linux device manager for many Logitech peripherals that connect
+           through Unifying and other receivers or via USB or Bluetooth.
+           Solaar is able to pair/unpair devices with receivers and show and modify
+           some of the modifiable features of devices.
+          EOF
+          
+          # Create debian/rules
+          cat > debian/rules << 'EOF'
+          #!/usr/bin/make -f
+          
+          %:
+          	dh $@ --with python3 --buildsystem=pybuild
+          
+          override_dh_auto_install:
+          	dh_auto_install
+          	# Install udev rules
+          	install -D -m 644 rules.d/42-logitech-unify-permissions.rules \
+          		debian/solaar/lib/udev/rules.d/42-logitech-unify-permissions.rules
+          EOF
+          chmod +x debian/rules
+          
+          # Create debian/changelog
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          DATE_STR=$(date -R)
+          cat > debian/changelog << EOF_CHANGELOG
+          solaar (${VERSION}) unstable; urgency=medium
+          
+            * Release version ${VERSION}
+          
+           -- pwr-Solaar <pfpschneider@gmail.com>  ${DATE_STR}
+          EOF_CHANGELOG
+          
+          # Create debian/compat
+          echo "12" > debian/compat
+          
+          # Create debian/source/format
+          echo "3.0 (native)" > debian/source/format
+          
+          # Create debian/copyright
+          cat > debian/copyright << 'EOF'
+          Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+          Upstream-Name: solaar
+          Upstream-Contact: Solaar Developers
+          Source: https://github.com/pwr-Solaar/Solaar
+          
+          Files: *
+          Copyright: 2012-2024 Daniel Pavel and contributors
+          License: GPL-2+
+          
+          License: GPL-2+
+           This package is free software; you can redistribute it and/or modify
+           it under the terms of the GNU General Public License as published by
+           the Free Software Foundation; either version 2 of the License, or
+           (at your option) any later version.
+           .
+           This package is distributed in the hope that it will be useful,
+           but WITHOUT ANY WARRANTY; without even the implied warranty of
+           MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+           GNU General Public License for more details.
+           .
+           You should have received a copy of the GNU General Public License
+           along with this program. If not, see <https://www.gnu.org/licenses/>
+           .
+           On Debian systems, the complete text of the GNU General
+           Public License version 2 can be found in "/usr/share/common-licenses/GPL-2".
+          EOF
+
+      - name: Build DEB package
+        run: |
+          dpkg-buildpackage -us -uc -b
+
+      - name: List built packages
+        run: |
+          ls -lh ../*.deb || true
+          mkdir -p dist
+          cp ../*.deb dist/ || true
+          ls -lh dist/
+
+      - name: Upload DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: solaar-deb-${{ steps.get_version.outputs.VERSION }}
+          path: dist/*.deb
+          if-no-files-found: error
+
+  build-appimage:
+    # Use ubuntu-20.04 for AppImage builds to ensure compatibility with older systems
+    # AppImage should work on systems with glibc >= 2.31 (Ubuntu 20.04 and newer)
+    runs-on: ubuntu-20.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION=$(cat lib/solaar/version)
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libgirepository1.0-dev \
+            gobject-introspection \
+            libfuse2 \
+            desktop-file-utils \
+            zsync
+          # Note: Ubuntu 20.04 uses libgirepository1.0-dev, while newer versions use 2.0
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install setuptools wheel
+          pip install pyinstaller
+
+      - name: Install Solaar dependencies
+        run: |
+          pip install \
+            'evdev>=1.1.2' \
+            'pyudev>=0.13' \
+            'PyYAML>=3.12' \
+            'python-xlib>=0.27' \
+            'psutil>=5.4.3' \
+            'dbus-python' \
+            'PyGObject' \
+            'typing_extensions'
+
+      - name: Create AppDir structure
+        run: |
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/lib
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/scalable/apps
+          mkdir -p AppDir/usr/share/icons/hicolor/32x32/apps
+          mkdir -p AppDir/usr/share/locale
+          mkdir -p AppDir/usr/share/metainfo
+          mkdir -p AppDir/lib/udev/rules.d
+
+      - name: Install Solaar to AppDir
+        run: |
+          python setup.py install --root=AppDir --prefix=/usr
+
+      - name: Create AppRun script
+        run: |
+          cat > AppDir/AppRun << 'EOF'
+          #!/bin/bash
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          export PYTHONPATH="${HERE}/usr/lib/python3/dist-packages:${PYTHONPATH}"
+          export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS}"
+          exec "${HERE}/usr/bin/solaar" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+
+      - name: Create desktop file
+        run: |
+          cp share/applications/solaar.desktop AppDir/solaar.desktop
+          # Ensure Icon points to correct name
+          sed -i 's/Icon=.*/Icon=solaar/' AppDir/solaar.desktop
+
+      - name: Copy icon
+        run: |
+          cp share/solaar/icons/solaar.svg AppDir/solaar.svg
+          cp share/solaar/icons/solaar.svg AppDir/.DirIcon
+
+      - name: Download appimagetool
+        run: |
+          # Note: Using continuous release for latest appimagetool
+          # In production, consider pinning to a specific version and verifying checksums
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract
+
+      - name: Build AppImage
+        run: |
+          mkdir -p dist
+          ARCH=x86_64 ./squashfs-root/AppRun AppDir dist/Solaar-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage
+          chmod +x dist/Solaar-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage
+          ls -lh dist/
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: solaar-appimage-${{ steps.get_version.outputs.VERSION }}
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+  create-release:
+    needs: [build-deb, build-appimage]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.create_release == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version and release notes
+        id: get_info
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION=${{ github.ref_name }}
+          else
+            VERSION=$(cat lib/solaar/version)
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Check if this is a pre-release
+          if [[ "$VERSION" == *"rc"* ]]; then
+            echo "PRERELEASE=true" >> $GITHUB_OUTPUT
+          else
+            echo "PRERELEASE=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Extract release notes from CHANGELOG.md
+          awk -v version="$VERSION" '
+            /^# / {
+              if (found) exit
+              if ($0 ~ "# " version) {
+                found=1
+                next
+              }
+            }
+            found && /^\*/ { print }
+          ' CHANGELOG.md > release_notes.txt
+          
+          if [ ! -s release_notes.txt ]; then
+            echo "Release $VERSION" > release_notes.txt
+          fi
+
+      - name: Download DEB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: solaar-deb-${{ steps.get_info.outputs.VERSION }}
+          path: dist-deb
+
+      - name: Download AppImage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: solaar-appimage-${{ steps.get_info.outputs.VERSION }}
+          path: dist-appimage
+
+      - name: List artifacts
+        run: |
+          echo "DEB packages:"
+          ls -lh dist-deb/
+          echo "AppImage:"
+          ls -lh dist-appimage/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist-deb/*.deb
+            dist-appimage/*.AppImage
+          body_path: release_notes.txt
+          prerelease: ${{ steps.get_info.outputs.PRERELEASE }}
+          draft: false
+          tag_name: ${{ steps.get_info.outputs.VERSION }}
+          name: Release ${{ steps.get_info.outputs.VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
