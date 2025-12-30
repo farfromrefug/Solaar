@@ -104,13 +104,15 @@ jobs:
           chmod +x debian/rules
           
           # Create debian/changelog
-          cat > debian/changelog << EOF
-          solaar (${{ steps.get_version.outputs.VERSION }}) unstable; urgency=medium
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          DATE_STR=$(date -R)
+          cat > debian/changelog << EOF_CHANGELOG
+          solaar (${VERSION}) unstable; urgency=medium
           
-            * Release version ${{ steps.get_version.outputs.VERSION }}
+            * Release version ${VERSION}
           
-           -- pwr-Solaar <pfpschneider@gmail.com>  $(date -R)
-          EOF
+           -- pwr-Solaar <pfpschneider@gmail.com>  ${DATE_STR}
+          EOF_CHANGELOG
           
           # Create debian/compat
           echo "12" > debian/compat
@@ -261,6 +263,8 @@ jobs:
 
       - name: Download appimagetool
         run: |
+          # Note: Using continuous release for latest appimagetool
+          # In production, consider pinning to a specific version and verifying checksums
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           ./appimagetool-x86_64.AppImage --appimage-extract
